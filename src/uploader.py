@@ -148,8 +148,10 @@ class Uploader:
                 headers = self._auth_headers()
 
                 # 1. Upload fil till Storage
-                file_name = os.path.basename(file_path)
-                storage_path = f"{self.user_id}/{recording_id}/{file_name}"
+                # Format: {user_id}/{timestamp}.flac (matchar Lovable-appens förväntning)
+                file_ext = "flac" if file_path.endswith(".flac") else "wav"
+                timestamp = metadata.get("recorded_at", "unknown").replace(":", "-")
+                storage_path = f"{self.user_id}/{timestamp}.{file_ext}"
 
                 content_type = (
                     "audio/flac" if file_path.endswith(".flac")
