@@ -1,0 +1,41 @@
+# NotePin Pi — Konfiguration
+# Kopiera till config.yaml och fyll i dina värden:
+#   cp config/config.example.yaml config/config.yaml
+
+supabase:
+  url: "https://YOUR_PROJECT.supabase.co"
+  anon_key: "eyJ..."
+  storage_bucket: "recordings"
+
+audio:
+  sample_rate: 44100
+  bit_depth: 24        # 16 eller 24
+  channels: 2          # 1 = mono, 2 = stereo
+  format: "flac"       # wav eller flac (flac sparar ~50% utrymme)
+  highpass_hz: 80      # Klipp bort lågfrekvent brum
+  agc_enabled: true    # Automatic Gain Control
+  noise_gate_db: -45   # Tysta mikrofonen under denna nivå
+  max_duration_hours: 4
+
+ble:
+  device_name: "NotePin"
+  service_uuid: "12345678-1234-5678-1234-123456789abc"
+  wifi_char_uuid: "12345678-1234-5678-1234-123456789abd"
+  auth_char_uuid: "12345678-1234-5678-1234-123456789abe"
+  status_char_uuid: "12345678-1234-5678-1234-123456789abf"
+
+gpio:
+  button_pin: 17         # BCM-numrering
+  led_pin: 18
+  led_type: "simple"     # simple (enkel RGB) eller ws2812b
+
+paths:
+  recordings_dir: "/home/pi/recordings"
+  config_dir: "/home/pi/notepin-pi/config"
+  log_file: "/home/pi/notepin-pi/notepin.log"
+
+device:
+  check_updates_on_boot: true
+  upload_on_wifi: true
+  upload_retry_interval: 60   # Sekunder mellan upload-försök
+  status_broadcast_interval: 5  # Sekunder mellan BLE-statusuppdateringar

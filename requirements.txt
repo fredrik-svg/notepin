@@ -1,0 +1,25 @@
+# NotePin Pi — Python Dependencies
+# Install: pip install -r requirements.txt
+
+# Audio
+pyaudio==0.2.14
+soundfile==0.12.1
+numpy>=1.24.0
+
+# BLE GATT Server
+dbus-fast>=2.22.1
+
+# GPIO & Hardware
+gpiozero>=2.0
+RPi.GPIO>=0.7.1
+# rpi_ws281x>=5.0.0     # Uncomment for WS2812B LED support
+# adafruit-circuitpython-ina219  # Uncomment for UPS HAT battery monitoring
+
+# Supabase
+httpx>=0.27.0
+
+# Configuration
+pyyaml>=6.0.1
+
+# Utilities
+python-dateutil>=2.9.0

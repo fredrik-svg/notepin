@@ -1,0 +1,25 @@
+[Unit]
+Description=NotePin AI Voice Recorder
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/notepin-pi
+ExecStart=/usr/bin/python3 -m src.main
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Ge tillgång till GPIO, Bluetooth och ljud
+SupplementaryGroups=gpio bluetooth audio i2c
+
+# Miljövariabler
+Environment=PYTHONUNBUFFERED=1
+Environment=NOTEPIN_CONFIG=/home/pi/notepin-pi/config/config.yaml
+
+[Install]
+WantedBy=multi-user.target
