@@ -1,10 +1,16 @@
 # NotePin Pi — Konfiguration
-# Kopiera till config.yaml och fyll i dina värden:
+# Kopiera till config.yaml:
 #   cp config/config.example.yaml config/config.yaml
+#
+# OBS: supabase_url och anon_key behöver INTE fyllas i här.
+# De skickas automatiskt från appen via BLE vid parkoppling
+# och sparas i ~/.notepin_credentials.json
 
 supabase:
-  url: "https://YOUR_PROJECT.supabase.co"
-  anon_key: "eyJ..."
+  # Dessa används ENBART som fallback om BLE-credentials saknas.
+  # Lämna som de är — appen skickar rätt värden vid pairing.
+  url: ""
+  anon_key: ""
   storage_bucket: "recordings"
 
 audio:
