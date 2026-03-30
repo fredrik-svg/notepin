@@ -36,10 +36,13 @@ def load_config(path: str | Path | None = None) -> dict:
 
 
 def _validate(config: dict) -> None:
-    """Validera att nödvändiga nycklar finns."""
+    """Validera att nödvändiga nycklar finns.
+
+    OBS: supabase.url och supabase.anon_key valideras INTE här
+    eftersom de skickas via BLE vid parkoppling och sparas i
+    ~/.notepin_credentials.json — inte i config.yaml.
+    """
     required = [
-        ("supabase", "url"),
-        ("supabase", "anon_key"),
         ("supabase", "storage_bucket"),
         ("audio", "sample_rate"),
         ("ble", "device_name"),
