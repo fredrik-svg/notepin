@@ -21,6 +21,7 @@ from src.utils.logger import setup_logger
 from src.recorder import Recorder
 from src.ble_server import BLEServer
 from src.uploader import Uploader
+from src.cloud_commands import CloudCommandPoller
 from src.button_handler import ButtonHandler, SimulatedButton, HAS_GPIO
 from src.led_controller import LEDController, LEDState
 from src.updater import check_for_updates, restart_service
@@ -54,6 +55,9 @@ class NotePin:
         # Uploader skapas efter pairing (behöver credentials)
         self.uploader: Uploader | None = None
 
+        # Cloud command poller skapas efter pairing
+        self.cloud_commands: CloudCommandPoller | None = None
+
         self._setup_callbacks()
         self._running = False
 
@@ -68,9 +72,36 @@ class NotePin:
         self.recorder.on_recording_started(self._on_recording_started)
         self.recorder.on_recording_stopped(self._on_recording_stopped)
 
-        # BLE → WiFi + auth
+        # BLE → WiFi + auth + kommandon
         self.ble.on_wifi_configured(self._on_wifi_configured)
         self.ble.on_auth_configured(self._on_auth_configured)
+        self.ble.on_command_received(self._handle_command)
+
+    def _handle_command(self, command: str):
+        """Hantera kommandon från BLE eller Cloud."""
+        logger.info(f"Kommando: {command}")
+
+        if command == "start_recording":
+            if not self.recorder.is_recording:
+                self.recorder.start()
+            else:
+                logger.warning("Inspelning pågår redan")
+
+        elif command == "stop_recording":
+            if self.recorder.is_recording:
+                self.recorder.stop()
+            else:
+                logger.warning("Ingen inspelning att stoppa")
+
+        elif command == "add_highlight":
+            if self.recorder.is_recording:
+                self.recorder.add_highlight()
+                self.led.flash_highlight()
+            else:
+                logger.warning("Kan inte markera — ingen inspelning pågår")
+
+        elif command == "get_status":
+            logger.debug("Statusförfrågan — BLE broadcastar automatiskt")
 
     def _toggle_recording(self):
         """Starta eller stoppa inspelning (långt knapptryck)."""
@@ -129,7 +160,7 @@ class NotePin:
         self._try_init_uploader()
 
     def _try_init_uploader(self):
-        """Försök skapa uploader om alla credentials finns."""
+        """Försök skapa uploader och cloud command poller om credentials finns."""
         credentials = self.ble.get_credentials()
 
         if not credentials.get("user_id") or not credentials.get("refresh_token"):
@@ -140,6 +171,29 @@ class NotePin:
 
         self.uploader = Uploader(self.config, credentials)
         logger.info("Uploader initierad — redo att synka inspelningar")
+
+        # Starta cloud command poller
+        supabase_url = (
+            credentials.get("supabase_url")
+            or self.config["supabase"].get("url")
+        )
+        anon_key = (
+            credentials.get("anon_key")
+            or self.config["supabase"].get("anon_key")
+        )
+
+        if supabase_url and anon_key:
+            self.cloud_commands = CloudCommandPoller(
+                supabase_url=supabase_url,
+                anon_key=anon_key,
+                access_token=anon_key,  # Uppdateras efter token-refresh
+                device_id=credentials.get("device_id", ""),
+                poll_interval=self.config["device"].get(
+                    "command_poll_interval", 3
+                ),
+            )
+            self.cloud_commands.on_command(self._handle_command)
+            logger.info("Cloud command poller initierad")
 
     async def run(self):
         """Huvudloop — starta alla subsystem."""
@@ -177,11 +231,16 @@ class NotePin:
         if self.uploader:
             upload_task = asyncio.create_task(self.uploader.start())
 
+        # 5b. Starta cloud command poller i bakgrunden
+        cloud_cmd_task = None
+        if self.cloud_commands:
+            cloud_cmd_task = asyncio.create_task(self.cloud_commands.start())
+
         # 6. Status-broadcast loop
         logger.info("NotePin redo!")
         logger.info(
-            "Långt tryck = starta/stoppa inspelning, "
-            "kort tryck = highlight"
+            "Styr inspelning via appen, eller "
+            "långt tryck = start/stopp, kort tryck = highlight"
         )
 
         try:
@@ -195,6 +254,12 @@ class NotePin:
                 # Kolla om uploader ska startas (kan hända efter BLE-pairing)
                 if not upload_task and self.uploader:
                     upload_task = asyncio.create_task(self.uploader.start())
+
+                # Kolla om cloud commands ska startas
+                if not cloud_cmd_task and self.cloud_commands:
+                    cloud_cmd_task = asyncio.create_task(
+                        self.cloud_commands.start()
+                    )
 
                 await asyncio.sleep(
                     self.config["device"].get(
@@ -220,6 +285,9 @@ class NotePin:
 
         # Stoppa subsystem
         self.button.stop()
+
+        if self.cloud_commands:
+            await self.cloud_commands.stop()
 
         if self.uploader:
             await self.uploader.stop()

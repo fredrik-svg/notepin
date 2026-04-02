@@ -1,9 +1,10 @@
-"""BLE GATT-server för pairing och WiFi-provisioning.
+"""BLE GATT-server för pairing, WiFi-provisioning och fjärrstyrning.
 
-Exponerar tre BLE characteristics:
+Exponerar fyra BLE characteristics:
   - WiFi Config: Ta emot SSID + lösenord från appen
   - Auth Config: Ta emot user_id + refresh_token från appen
   - Status: Broadcast inspelningsstatus, batteri, etc.
+  - Command: Ta emot kommandon (start/stopp inspelning, highlight)
 
 Använder BlueZ D-Bus API via dbus-fast.
 """
@@ -13,6 +14,7 @@ import json
 import subprocess
 import logging
 from pathlib import Path
+from typing import Callable
 
 from src.utils.config_loader import get_device_serial
 from src.utils.logger import setup_logger
@@ -45,6 +47,9 @@ class BLEServer:
         self.wifi_char_uuid = ble_cfg["wifi_char_uuid"]
         self.auth_char_uuid = ble_cfg["auth_char_uuid"]
         self.status_char_uuid = ble_cfg["status_char_uuid"]
+        self.command_char_uuid = ble_cfg.get(
+            "command_char_uuid", "12345678-1234-5678-1234-123456789ac0"
+        )
 
         self.device_serial = get_device_serial()
         self._running = False
@@ -52,6 +57,7 @@ class BLEServer:
         # Callbacks
         self._on_wifi_configured = None
         self._on_auth_configured = None
+        self._on_command_received: Callable | None = None
 
         # Status som broadcastas
         self._status = {
@@ -78,6 +84,45 @@ class BLEServer:
     def on_auth_configured(self, callback):
         """Callback när auth-credentials tagits emot."""
         self._on_auth_configured = callback
+
+    def on_command_received(self, callback: Callable):
+        """Callback när ett kommando tas emot via BLE.
+
+        Callback får command-strängen som argument:
+          start_recording, stop_recording, add_highlight, get_status
+        """
+        self._on_command_received = callback
+
+    def handle_command_write(self, data: bytes):
+        """Hantera kommandon mottagna via BLE.
+
+        Förväntat format (JSON):
+            {"command": "start_recording"}
+            {"command": "stop_recording"}
+            {"command": "add_highlight"}
+        """
+        try:
+            payload = json.loads(data.decode("utf-8"))
+            command = payload.get("command")
+
+            valid_commands = [
+                "start_recording",
+                "stop_recording",
+                "add_highlight",
+                "get_status",
+            ]
+
+            if command not in valid_commands:
+                logger.warning(f"Okänt BLE-kommando: {command}")
+                return
+
+            logger.info(f"BLE-kommando mottaget: {command}")
+
+            if self._on_command_received:
+                self._on_command_received(command)
+
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            logger.error(f"Ogiltig kommando-data: {e}")
 
     def update_status(self, **kwargs):
         """Uppdatera status som broadcastas via BLE."""
