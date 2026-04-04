@@ -3,10 +3,11 @@
 Startar och koordinerar alla subsystem:
   1. OTA-uppdatering (vid boot)
   2. LED-kontroller
-  3. BLE GATT-server (pairing + status)
-  4. Knapphantering (inspelning start/stopp/highlight)
-  5. Ljudinspelning
-  6. Supabase-upload (bakgrund)
+  3. WiFi AP provisioning (captive portal — fungerar på alla enheter)
+  4. BLE GATT-server (bonus för Android/Chrome)
+  5. Knapphantering (inspelning start/stopp/highlight)
+  6. Ljudinspelning
+  7. Supabase-upload (bakgrund)
 
 Körs som systemd-service via notepin.service.
 """
@@ -20,6 +21,7 @@ from src.utils.config_loader import load_config, get_device_serial
 from src.utils.logger import setup_logger
 from src.recorder import Recorder
 from src.ble_server import BLEServer
+from src.wifi_provision import WiFiProvisionServer
 from src.uploader import Uploader
 from src.cloud_commands import CloudCommandPoller
 from src.button_handler import ButtonHandler, SimulatedButton, HAS_GPIO
@@ -44,6 +46,7 @@ class NotePin:
         # Initiera subsystem
         self.led = LEDController(self.config)
         self.ble = BLEServer(self.config)
+        self.wifi_provision = WiFiProvisionServer(self.config)
         self.recorder = Recorder(self.config)
 
         # Knapp — riktig GPIO eller simulerad
@@ -76,6 +79,10 @@ class NotePin:
         self.ble.on_wifi_configured(self._on_wifi_configured)
         self.ble.on_auth_configured(self._on_auth_configured)
         self.ble.on_command_received(self._handle_command)
+
+        # WiFi AP provisioning → WiFi + auth (samma callbacks)
+        self.wifi_provision.on_wifi_configured(self._on_wifi_configured)
+        self.wifi_provision.on_auth_configured(self._on_auth_configured)
 
     def _handle_command(self, command: str):
         """Hantera kommandon från BLE eller Cloud."""
@@ -211,20 +218,50 @@ class NotePin:
         self.led.start()
         self.led.set_state(LEDState.STANDBY)
 
-        # 3. Starta BLE
-        await self.ble.start()
-
+        # 3. Provisioning eller normal drift
         if not self.ble.is_paired:
             self.led.set_state(LEDState.PAIRING)
+            logger.info("Enheten är inte parad — startar provisioning")
+
+            # 3a. Starta WiFi AP captive portal (fungerar på alla enheter)
+            ap_started = await self.wifi_provision.start()
+            if ap_started:
+                logger.info(
+                    "WiFi-hotspot aktiv — anslut till '%s' för setup",
+                    self.wifi_provision.ap_ssid,
+                )
+
+            # 3b. Starta BLE parallellt (bonus för Android/Chrome)
+            await self.ble.start()
             logger.info(
-                "Enheten är inte parad — väntar på BLE-anslutning från appen"
+                "BLE aktiv — Android-användare kan även para via appen"
             )
+
+            # Vänta tills provisioning är klar
+            while self._running and not self.wifi_provision.is_provisioned and not self.ble.is_paired:
+                await asyncio.sleep(1)
+
+            # Provisioning klar — stäng ner hotspot om det fortfarande körs
+            if self.wifi_provision.is_provisioned or self.ble.is_paired:
+                logger.info("Provisioning klar!")
+                await self.wifi_provision.stop()
+                self.led.set_state(LEDState.STANDBY)
+                self._try_init_uploader()
+
         else:
-            # Initiera uploader med sparade credentials
+            logger.info("Enheten är redan parad")
+            # Starta BLE för status/kommandon
+            await self.ble.start()
             self._try_init_uploader()
 
         # 4. Starta knapphantering
-        self.button.start()
+        try:
+            self.button.start()
+        except RuntimeError as e:
+            logger.warning(
+                "Kunde inte starta knapp-hantering: %s "
+                "(ingen knapp inkopplad?)", e
+            )
 
         # 5. Starta upload-loop i bakgrunden
         upload_task = None
@@ -292,6 +329,7 @@ class NotePin:
         if self.uploader:
             await self.uploader.stop()
 
+        await self.wifi_provision.stop()
         await self.ble.stop()
 
         self.led.set_state(LEDState.OFF)
