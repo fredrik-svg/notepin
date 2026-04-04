@@ -36,10 +36,14 @@ apt-get install -y -qq \
     network-manager \
     bluez \
     bluez-tools \
+    dnsmasq \
     libasound2-dev \
     portaudio19-dev \
     libsndfile1-dev \
     flac
+
+# Inaktivera dnsmasq som system-service (vi kör den manuellt vid behov)
+systemctl disable --now dnsmasq 2>/dev/null || true
 
 # Säkerställ att NetworkManager körs (standard i Trixie, behövs i Bookworm)
 echo ""
